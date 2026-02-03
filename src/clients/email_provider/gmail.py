@@ -54,7 +54,7 @@ class GmailProvider(EmailProvider):
                         sender=details["sender"],
                         subject=details["subject"],
                         body_text=details["body_text"],
-                        received_at=datetime.now()  # Gmail doesn't return this easily
+                        received_at=details.get("received_at")
                     ))
 
             return messages

@@ -143,11 +143,20 @@ def fetch_email_details(service, message_id: str) -> Dict[str, Any]:
         msg = service.users().messages().get(userId='me', id=message_id, format='full').execute()
         payload = msg['payload']
         headers = payload['headers']
+
+        # Extract internalDate (timestamp in milliseconds since epoch)
+        internal_date_ms = msg.get('internalDate')
+        received_at = None
+        if internal_date_ms:
+            from datetime import datetime
+            received_at = datetime.fromtimestamp(int(internal_date_ms) / 1000)
+
         return {
             "message_id": msg['id'],
             "subject": _get_header(headers, "Subject"),
             "sender": _get_header(headers, "From"),
-            "body_text": _parse_email_body(payload)
+            "body_text": _parse_email_body(payload),
+            "received_at": received_at
         }
     except HttpError as error:
         logging.error(f'Error fetching details for {message_id}: {error}')
