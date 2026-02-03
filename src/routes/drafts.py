@@ -23,7 +23,13 @@ router = APIRouter(prefix="/drafts", tags=["Drafts"])
 @router.get("/", response_model=List[DraftSummary])
 async def get_drafts_list(db: Session = Depends(get_db)):
     try:
-        drafts = db.query(Draft).options(joinedload(Draft.email)).all()
+        # Get active provider
+        active_provider = _get_setting(db, "email_provider") or "gmail"
+
+        drafts = db.query(Draft).options(joinedload(Draft.email)).filter(
+            Draft.provider == active_provider
+        ).all()
+
         summaries = []
         for draft in drafts:
             summaries.append(DraftSummary(
