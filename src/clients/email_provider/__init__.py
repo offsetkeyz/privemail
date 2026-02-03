@@ -1,11 +1,12 @@
 """Email provider abstraction layer."""
 import json
 import logging
-from typing import Optional
+from typing import Optional, Dict
 
 from .base import EmailProvider, EmailMessage, SendResult
 from .gmail import GmailProvider
 from .fastmail import FastmailProvider
+from database.db import SessionLocal, Setting
 
 __all__ = [
     "EmailProvider",
@@ -19,10 +20,12 @@ __all__ = [
 
 logging.basicConfig(level=logging.INFO)
 
+# Provider cache to avoid recreating instances
+_provider_cache: Dict[str, EmailProvider] = {}
+
 
 def _get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
     """Get a setting from the database."""
-    from database.db import SessionLocal, Setting
     db = SessionLocal()
     try:
         setting = db.query(Setting).filter(Setting.key == key).first()
@@ -44,11 +47,12 @@ def get_active_provider() -> EmailProvider:
     return get_provider_by_name(provider_name)
 
 
-def get_provider_by_name(name: str) -> EmailProvider:
+def get_provider_by_name(name: str, use_cache: bool = True) -> EmailProvider:
     """Get a specific provider by name.
 
     Args:
         name: Provider identifier ('gmail' or 'fastmail')
+        use_cache: Whether to use cached provider instance (default: True)
 
     Returns:
         EmailProvider instance
@@ -56,8 +60,14 @@ def get_provider_by_name(name: str) -> EmailProvider:
     Raises:
         ValueError: If provider is unknown or not configured
     """
+    # Check cache first
+    if use_cache and name in _provider_cache:
+        return _provider_cache[name]
+
+    # Create provider instance
+    provider: EmailProvider
     if name == "gmail":
-        return GmailProvider()
+        provider = GmailProvider()
 
     elif name == "fastmail":
         api_token = _get_setting("fastmail_api_key")
@@ -66,7 +76,13 @@ def get_provider_by_name(name: str) -> EmailProvider:
         if not api_token:
             raise ValueError("Fastmail API key not configured")
 
-        return FastmailProvider(api_token=api_token, account_id=account_id)
+        provider = FastmailProvider(api_token=api_token, account_id=account_id)
 
     else:
         raise ValueError(f"Unknown email provider: {name}")
+
+    # Cache the provider
+    if use_cache:
+        _provider_cache[name] = provider
+
+    return provider
