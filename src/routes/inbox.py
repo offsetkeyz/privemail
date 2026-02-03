@@ -2,15 +2,22 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc 
+from sqlalchemy import desc
 
 from models.schemas import InboxItem
-from database.db import get_db, Draft, Email
+from database.db import get_db, Draft, Email, Setting
 
 router = APIRouter(
     prefix="/inbox",
     tags=["Inbox"],
 )
+
+
+def _get_setting(db: Session, key: str) -> str | None:
+    """Get a setting from database."""
+    setting = db.query(Setting).filter(Setting.key == key).first()
+    return setting.value if setting else None
+
 
 @router.get("/", response_model=List[InboxItem])
 def get_inbox_list(
@@ -19,10 +26,13 @@ def get_inbox_list(
     page_size: int = Query(50, ge=1, le=100)
 ):
     """
-    Fetches all processed emails, joining any associated drafts.
+    Fetches all processed emails for the active provider.
     Sorted by urgency. Excludes archived and replied emails.
     """
     try:
+        # Get active provider
+        active_provider = _get_setting(db, "email_provider") or "gmail"
+
         offset = (page - 1) * page_size
         results = (
             db.query(
@@ -33,9 +43,8 @@ def get_inbox_list(
                 Draft.id.label("draft_id")
             )
             .outerjoin(Draft, Email.id == Draft.email_id)
-            # --- MODIFIED: Filter out 'archived_no_reply' AND 'replied' ---
             .filter(Email.status.notin_(["archived_no_reply", "replied"]))
-            # --------------------------------------------------------------
+            .filter(Email.provider == active_provider)
             .order_by(desc(Email.local_priority_score))
             .offset(offset)
             .limit(page_size)
