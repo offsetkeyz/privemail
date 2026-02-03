@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from database import db, db_manager
 from clients import google as google_client
 from clients import ai_engine as ollama_client
+from clients.email_provider import FastmailProvider
 from core.config import SETUP_COMPLETE_FLAG_PATH, DEFAULT_OLLAMA_MODEL
 from scheduler import _set_setting
 # FIX: Import get_data_dir
@@ -37,8 +38,23 @@ async def get_setup_status():
     google_token_exists = token_path.exists()
     ollama_running = await ollama_client.check_ollama_status()
 
+    # Check Fastmail configuration
+    session = db.SessionLocal()
+    try:
+        fastmail_key = session.query(db.Setting).filter(
+            db.Setting.key == "fastmail_api_key").first()
+        fastmail_configured = fastmail_key is not None and fastmail_key.value is not None
+
+        active_provider_setting = session.query(db.Setting).filter(
+            db.Setting.key == "email_provider").first()
+        active_provider = active_provider_setting.value if active_provider_setting else "gmail"
+    finally:
+        session.close()
+
     return {
         "google_connected": google_token_exists,
+        "fastmail_connected": fastmail_configured,
+        "active_provider": active_provider,
         "ollama_running": ollama_running,
         "setup_complete": setup_flag.exists()
     }
@@ -88,3 +104,42 @@ def complete_setup(request: SetupInitRequest):
     except Exception as e:
         logging.error(f"SETUP ERROR: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class FastmailSetupRequest(BaseModel):
+    api_key: str
+
+
+@router.post("/fastmail")
+async def setup_fastmail(request: FastmailSetupRequest):
+    """Setup Fastmail with API key (app password)."""
+    try:
+        # Test connection
+        provider = FastmailProvider(api_token=request.api_key)
+
+        if not await provider.test_connection():
+            return {"success": False, "error": "Connection failed. Check your API key."}
+
+        # Get account info
+        account_id = provider._get_account_id()
+        sender_email = provider._get_sender_email()
+
+        # Save credentials to database
+        session = db.SessionLocal()
+        try:
+            _set_setting(session, "fastmail_api_key", request.api_key)
+            _set_setting(session, "fastmail_account_id", account_id)
+            # Don't switch provider automatically - let user choose
+        finally:
+            session.close()
+
+        logging.info(f"SETUP: Fastmail connected for {sender_email}")
+        return {
+            "success": True,
+            "account_id": account_id,
+            "email": sender_email
+        }
+
+    except Exception as e:
+        logging.error(f"Fastmail setup failed: {e}")
+        return {"success": False, "error": str(e)}
