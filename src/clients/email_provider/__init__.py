@@ -6,6 +6,7 @@ from typing import Optional, Dict
 from .base import EmailProvider, EmailMessage, SendResult
 from .gmail import GmailProvider
 from .fastmail import FastmailProvider
+from .validation import is_valid_email
 from database.db import SessionLocal, Setting
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "FastmailProvider",
     "get_active_provider",
     "get_provider_by_name",
+    "is_valid_email",
 ]
 
 logging.basicConfig(level=logging.INFO)
