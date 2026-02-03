@@ -20,6 +20,7 @@ from routes import inbox as inbox_router
 from routes import system as system_router
 from routes import groups as groups_router
 from routes import setup as setup_router
+from routes import classification as classification_router
 
 import service_manager
 from database import db, db_manager
@@ -109,6 +110,7 @@ app.include_router(inbox_router.router, prefix="/api")
 app.include_router(system_router.router, prefix="/api")
 app.include_router(groups_router.router, prefix="/api")
 app.include_router(setup_router.router, prefix="/api")
+app.include_router(classification_router.router, prefix="/api")
 
 # Mount Static Files
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
