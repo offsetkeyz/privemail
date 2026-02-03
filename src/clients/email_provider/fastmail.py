@@ -91,9 +91,9 @@ class FastmailProvider(EmailProvider):
             client = self._get_client()
             account_id = self._get_account_id()
 
-            result = client.request(
-                MailboxQuery(account_id=account_id, filter={"role": "inbox"})
-            )
+            query = MailboxQuery(filter={"role": "inbox"})
+            query.account_id = account_id
+            result = client.request(query)
 
             if result and result.ids:
                 return result.ids[0]
@@ -108,9 +108,9 @@ class FastmailProvider(EmailProvider):
             client = self._get_client()
             account_id = self._get_account_id()
 
-            result = client.request(
-                MailboxQuery(account_id=account_id, filter={"role": "drafts"})
-            )
+            query = MailboxQuery(filter={"role": "drafts"})
+            query.account_id = account_id
+            result = client.request(query)
 
             if result and result.ids:
                 return result.ids[0]
@@ -131,19 +131,18 @@ class FastmailProvider(EmailProvider):
                 return []
 
             # Query unread emails in inbox
+            email_query = EmailQuery(
+                filter={
+                    "inMailbox": inbox_id,
+                    "notKeyword": "$seen"
+                },
+                sort=[{"property": "receivedAt", "isAscending": False}],
+                limit=limit
+            )
+            email_query.account_id = account_id
+
             query_result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.request,
-                    EmailQuery(
-                        account_id=account_id,
-                        filter={
-                            "inMailbox": inbox_id,
-                            "notKeyword": "$seen"
-                        },
-                        sort=[{"property": "receivedAt", "isAscending": False}],
-                        limit=limit
-                    )
-                ),
+                asyncio.to_thread(client.request, email_query),
                 timeout=self.REQUEST_TIMEOUT
             )
 
@@ -151,19 +150,18 @@ class FastmailProvider(EmailProvider):
                 return []
 
             # Fetch email details
+            email_get = EmailGet(
+                ids=query_result.ids,
+                properties=[
+                    "id", "from", "subject", "receivedAt",
+                    "bodyValues", "textBody"
+                ],
+                fetch_text_body_values=True
+            )
+            email_get.account_id = account_id
+
             get_result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.request,
-                    EmailGet(
-                        account_id=account_id,
-                        ids=query_result.ids,
-                        properties=[
-                            "id", "from", "subject", "receivedAt",
-                            "bodyValues", "textBody"
-                        ],
-                        fetch_text_body_values=True
-                    )
-                ),
+                asyncio.to_thread(client.request, email_get),
                 timeout=self.REQUEST_TIMEOUT
             )
 
@@ -227,9 +225,9 @@ class FastmailProvider(EmailProvider):
             }
 
             # Create the email
-            email_result = client.request(
-                EmailSet(account_id=account_id, create=email_create)
-            )
+            email_set = EmailSet(create=email_create)
+            email_set.account_id = account_id
+            email_result = client.request(email_set)
 
             if not email_result.created or "draft" not in email_result.created:
                 return SendResult(success=False, error="Failed to create email")
@@ -237,17 +235,16 @@ class FastmailProvider(EmailProvider):
             email_id = email_result.created["draft"].id
 
             # Submit the email
-            submission_result = client.request(
-                EmailSubmissionSet(
-                    account_id=account_id,
-                    create={
-                        "send": EmailSubmission(
-                            email_id=email_id,
-                            identity_id=self._get_identity_id()
-                        )
-                    }
-                )
+            submission_set = EmailSubmissionSet(
+                create={
+                    "send": EmailSubmission(
+                        email_id=email_id,
+                        identity_id=self._get_identity_id()
+                    )
+                }
             )
+            submission_set.account_id = account_id
+            submission_result = client.request(submission_set)
 
             if submission_result.created and "send" in submission_result.created:
                 logging.info(f"Email sent successfully to {to}")
@@ -291,9 +288,9 @@ class FastmailProvider(EmailProvider):
                 )
             }
 
-            result = client.request(
-                EmailSet(account_id=account_id, create=email_create)
-            )
+            email_set = EmailSet(create=email_create)
+            email_set.account_id = account_id
+            result = client.request(email_set)
 
             if result.created and "draft" in result.created:
                 draft_id = result.created["draft"].id
@@ -332,7 +329,9 @@ class FastmailProvider(EmailProvider):
             account_id = self._get_account_id()
             # Get first identity
             from jmapc.methods import IdentityGet
-            result = client.request(IdentityGet(account_id=account_id))
+            identity_get = IdentityGet()
+            identity_get.account_id = account_id
+            result = client.request(identity_get)
             if result.data:
                 return result.data[0].id
             return None

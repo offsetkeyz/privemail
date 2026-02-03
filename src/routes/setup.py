@@ -132,7 +132,8 @@ async def setup_fastmail(request: FastmailSetupRequest):
         try:
             _set_setting(session, "fastmail_api_key", request.api_key)
             _set_setting(session, "fastmail_account_id", account_id)
-            # Don't switch provider automatically - let user choose
+            # Set Fastmail as the active provider
+            _set_setting(session, "email_provider", "fastmail")
         finally:
             session.close()
 
