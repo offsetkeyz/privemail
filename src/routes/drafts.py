@@ -12,6 +12,7 @@ from models.schemas import (
 )
 import clients.ai_engine as ollama_client
 import clients.google as google_client
+from clients.email_provider import get_provider_by_name
 from database.db import get_db, Draft, Email, Contact
 from core.config import DEFAULT_OLLAMA_MODEL
 from scheduler import _get_setting
@@ -137,25 +138,32 @@ async def send_draft(
         to_email = google_client.parse_email_address(draft.email.sender)
         subject = f"Re: {draft.email.subject}"
 
-        service = google_client.get_gmail_service()
-        if not service:
+        # Use the original email's provider for replies
+        email_provider = draft.email.provider or "gmail"
+
+        try:
+            provider = get_provider_by_name(email_provider)
+        except ValueError as e:
             raise HTTPException(
-                status_code=503, detail="Gmail service unavailable.")
+                status_code=503, detail=f"Provider {email_provider} not configured: {e}")
+
+        # Test connection
+        if not await provider.test_connection():
+            raise HTTPException(
+                status_code=503, detail=f"{email_provider} service unavailable.")
 
         if mode == "send":
-            logging.info(f"DIRECT SENDING draft {draft_id} to {to_email}...")
-            success = google_client.send_reply(
-                service, to_email, subject, final_content)
+            logging.info(f"DIRECT SENDING draft {draft_id} to {to_email} via {email_provider}...")
+            result = await provider.send_email(to_email, subject, final_content)
             action_msg = "Email sent successfully."
         else:
-            logging.info(f"Creating GMAIL DRAFT for {draft_id}...")
-            success = google_client.create_draft(
-                service, to_email, subject, final_content)
-            action_msg = "Draft created in Gmail."
+            logging.info(f"Creating DRAFT for {draft_id} via {email_provider}...")
+            result = await provider.create_draft(to_email, subject, final_content)
+            action_msg = f"Draft created in {email_provider.title()}."
 
-        if not success:
+        if not result.success:
             raise HTTPException(
-                status_code=500, detail="Failed to communicate with Gmail API.")
+                status_code=500, detail=result.error or f"Failed to communicate with {email_provider}.")
 
         draft.status = "sent"
         draft.email.status = "replied"
@@ -163,6 +171,8 @@ async def send_draft(
 
         return {"status": "success", "message": action_msg}
 
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         logging.error(f"Error sending draft {draft_id}: {e}", exc_info=True)
