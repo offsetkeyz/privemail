@@ -7,6 +7,7 @@ from database.db import SessionLocal, Setting
 from database.db import Email, Draft, Contact
 from database import db_manager
 
+from clients.email_provider import get_active_provider
 import clients.google as google_client
 import clients.ai_engine as ollama_client
 
@@ -44,48 +45,52 @@ async def async_email_fetch_job() -> bool:
 
         logging.info("SCHEDULER: Running email fetch job...")
 
+        # 2. GET ACTIVE PROVIDER
         try:
-            service = google_client.get_gmail_service()
+            provider = get_active_provider()
+            provider_name = provider.provider_name
+        except ValueError as e:
+            logging.warning(f"SCHEDULER: No provider configured: {e}")
+            return True  # Not an error, just not set up yet
         except Exception as e:
-            logging.error(f"SCHEDULER: Google Auth/Connection failed: {e}")
+            logging.error(f"SCHEDULER: Provider init failed: {e}")
             return False
 
-        if not service:
-            logging.warning("SCHEDULER: Gmail service is unavailable.")
+        # 3. TEST CONNECTION
+        if not await provider.test_connection():
+            logging.warning(f"SCHEDULER: {provider_name} connection failed.")
             return False
 
-        stubs = google_client.fetch_new_email_stubs(service)
-        if not stubs:
+        # 4. FETCH MESSAGES
+        messages = await provider.fetch_unread_messages(limit=1)
+        if not messages:
             logging.info("SCHEDULER: No new emails found.")
             return True
 
-        logging.info(f"SCHEDULER: Found {len(stubs)} new email(s).")
+        logging.info(f"SCHEDULER: Found {len(messages)} new email(s).")
 
         # Process one at a time
-        message_id = stubs[0]
+        msg = messages[0]
 
         # Check DB first
         existing_email = db.query(Email).filter(
-            Email.message_id == message_id).first()
+            Email.message_id == msg.message_id).first()
         if existing_email:
             return True
 
-        details = google_client.fetch_email_details(service, message_id)
-        if not details:
-            return False
-
-        real_name, email_address = parseaddr(details['sender'])
+        real_name, email_address = parseaddr(msg.sender)
 
         # Lightweight Archive for No-Reply
         if 'no-reply' in email_address.lower() or 'noreply' in email_address.lower():
             logging.info(
                 f"SCHEDULER: Archiving no-reply from {email_address}.")
             email_obj = Email(
-                message_id=details['message_id'],
-                sender=details['sender'],
+                message_id=msg.message_id,
+                sender=msg.sender,
                 subject="[No Reply]",
                 body_text=None,
-                status="archived_no_reply"
+                status="archived_no_reply",
+                provider=provider_name
             )
             db.add(email_obj)
             db.commit()
@@ -93,11 +98,12 @@ async def async_email_fetch_job() -> bool:
 
         # Save Valid Email
         email_obj = Email(
-            message_id=details['message_id'],
-            sender=details['sender'],
-            subject=details['subject'],
-            body_text=details['body_text'],
-            status="processed"
+            message_id=msg.message_id,
+            sender=msg.sender,
+            subject=msg.subject,
+            body_text=msg.body_text,
+            status="processed",
+            provider=provider_name
         )
         db.add(email_obj)
         db.commit()
@@ -113,7 +119,8 @@ async def async_email_fetch_job() -> bool:
             contact = Contact(
                 email_address=email_address,
                 name=real_name if real_name else None,
-                auto_draft_enabled=True
+                auto_draft_enabled=True,
+                source_providers=f'["{provider_name}"]'
             )
             db.add(contact)
             db.commit()
@@ -121,7 +128,7 @@ async def async_email_fetch_job() -> bool:
 
         # AI Analysis
         logging.info(f"SCHEDULER: Analyzing email {email_id}...")
-        analysis_result = await ollama_client.analyze_correspondent(details['body_text'])
+        analysis_result = await ollama_client.analyze_correspondent(msg.body_text)
 
         email_obj.correspondent_tone = analysis_result.get(
             'correspondent_tone')
@@ -133,9 +140,7 @@ async def async_email_fetch_job() -> bool:
 
         await db_manager.calculate_local_priority(email_id)
 
-        # --- DRAFT GENERATION LOGIC (UPDATED) ---
-
-        # Check for Manual Mode
+        # --- DRAFT GENERATION LOGIC ---
         manual_mode = _get_setting(db, "manual_mode") == "true"
 
         if manual_mode:
@@ -143,17 +148,18 @@ async def async_email_fetch_job() -> bool:
                 f"SCHEDULER: Manual Mode ON. Creating pending draft for {email_id}.")
             new_draft = Draft(
                 email_id=email_id,
-                generated_text="",  # Empty
+                generated_text="",
                 final_text="",
-                status="pending",  # New status
-                is_read_and_confirmed=False
+                status="pending",
+                is_read_and_confirmed=False,
+                provider=provider_name
             )
             db.add(new_draft)
             db.commit()
         else:
             logging.info(f"SCHEDULER: Generating draft for {email_id}...")
             generated_text = await ollama_client.generate_draft_reply(
-                context=details['body_text'],
+                context=msg.body_text,
                 contact=contact
             )
 
@@ -163,7 +169,8 @@ async def async_email_fetch_job() -> bool:
                     generated_text=generated_text,
                     final_text=generated_text,
                     status="draft",
-                    is_read_and_confirmed=False
+                    is_read_and_confirmed=False,
+                    provider=provider_name
                 )
                 db.add(new_draft)
                 db.commit()
