@@ -88,11 +88,55 @@ class Setting(Base):
     key = Column(String, primary_key=True, index=True)
     value = Column(String)
 
+def migrate_schema_if_needed():
+    """Add provider columns if they don't exist."""
+    from sqlalchemy import inspect, text
+
+    try:
+        inspector = inspect(engine)
+
+        # Migrate Email table
+        email_columns = [c['name'] for c in inspector.get_columns('emails')]
+        if 'provider' not in email_columns:
+            logging.info("Migrating Email table: adding provider column...")
+            with engine.connect() as conn:
+                conn.execute(text('ALTER TABLE emails ADD COLUMN provider VARCHAR DEFAULT "gmail"'))
+                conn.execute(text('CREATE INDEX IF NOT EXISTS ix_emails_provider ON emails(provider)'))
+                conn.commit()
+            logging.info("Email table migration completed.")
+
+        # Migrate Draft table
+        draft_columns = [c['name'] for c in inspector.get_columns('drafts')]
+        if 'provider' not in draft_columns:
+            logging.info("Migrating Draft table: adding provider column...")
+            with engine.connect() as conn:
+                conn.execute(text('ALTER TABLE drafts ADD COLUMN provider VARCHAR DEFAULT "gmail"'))
+                conn.commit()
+            logging.info("Draft table migration completed.")
+
+        # Migrate Contact table
+        contact_columns = [c['name'] for c in inspector.get_columns('contacts')]
+        if 'source_providers' not in contact_columns:
+            logging.info("Migrating Contact table: adding source_providers column...")
+            with engine.connect() as conn:
+                conn.execute(text('ALTER TABLE contacts ADD COLUMN source_providers TEXT DEFAULT \'["google"]\''))
+                conn.commit()
+            logging.info("Contact table migration completed.")
+
+    except Exception as e:
+        logging.error(f"Schema migration failed: {e}")
+        # Don't raise - let application continue with new installs
+
+
 def create_db_and_tables():
     try:
         logging.info(f"Attempting to create database tables at {DB_PATH}...")
         Base.metadata.create_all(bind=engine)
         logging.info("Database tables verified/created successfully.")
+
+        # Run migrations for existing databases
+        migrate_schema_if_needed()
+
     except OperationalError as e:
         logging.error(f"FATAL: Database operation failed: {e}")
     except Exception as e:
