@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from .base import EmailProvider, EmailMessage, SendResult
+from .validation import is_valid_email
 import clients.google as google_client
 
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +71,10 @@ class GmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Send email via Gmail."""
+        # Validate email address
+        if not is_valid_email(to):
+            return SendResult(success=False, error=f"Invalid email address: {to}")
+
         service = await asyncio.to_thread(self._get_service)
         if not service:
             return SendResult(success=False, error="Gmail service unavailable")
@@ -89,6 +94,10 @@ class GmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Create draft in Gmail."""
+        # Validate email address
+        if not is_valid_email(to):
+            return SendResult(success=False, error=f"Invalid email address: {to}")
+
         service = await asyncio.to_thread(self._get_service)
         if not service:
             return SendResult(success=False, error="Gmail service unavailable")

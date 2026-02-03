@@ -22,6 +22,7 @@ from jmapc.methods import (
 )
 
 from .base import EmailProvider, EmailMessage, SendResult
+from .validation import is_valid_email
 
 logging.basicConfig(level=logging.INFO)
 
@@ -206,6 +207,10 @@ class FastmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Send email via Fastmail."""
+        # Validate email address
+        if not is_valid_email(to):
+            return SendResult(success=False, error=f"Invalid email address: {to}")
+
         try:
             client = self._get_client()
             account_id = self._get_account_id()
@@ -262,6 +267,10 @@ class FastmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Create draft in Fastmail."""
+        # Validate email address
+        if not is_valid_email(to):
+            return SendResult(success=False, error=f"Invalid email address: {to}")
+
         try:
             client = self._get_client()
             account_id = self._get_account_id()
