@@ -1,4 +1,5 @@
 """Fastmail provider implementation using JMAP."""
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -29,6 +30,7 @@ class FastmailProvider(EmailProvider):
     """Fastmail implementation using JMAP protocol."""
 
     JMAP_HOST = "api.fastmail.com"
+    REQUEST_TIMEOUT = 30.0  # seconds
 
     def __init__(self, api_token: str, account_id: Optional[str] = None):
         """Initialize Fastmail provider.
@@ -128,32 +130,40 @@ class FastmailProvider(EmailProvider):
                 return []
 
             # Query unread emails in inbox
-            query_result = client.request(
-                EmailQuery(
-                    account_id=account_id,
-                    filter={
-                        "inMailbox": inbox_id,
-                        "notKeyword": "$seen"
-                    },
-                    sort=[{"property": "receivedAt", "isAscending": False}],
-                    limit=limit
-                )
+            query_result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.request,
+                    EmailQuery(
+                        account_id=account_id,
+                        filter={
+                            "inMailbox": inbox_id,
+                            "notKeyword": "$seen"
+                        },
+                        sort=[{"property": "receivedAt", "isAscending": False}],
+                        limit=limit
+                    )
+                ),
+                timeout=self.REQUEST_TIMEOUT
             )
 
             if not query_result or not query_result.ids:
                 return []
 
             # Fetch email details
-            get_result = client.request(
-                EmailGet(
-                    account_id=account_id,
-                    ids=query_result.ids,
-                    properties=[
-                        "id", "from", "subject", "receivedAt",
-                        "bodyValues", "textBody"
-                    ],
-                    fetch_text_body_values=True
-                )
+            get_result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.request,
+                    EmailGet(
+                        account_id=account_id,
+                        ids=query_result.ids,
+                        properties=[
+                            "id", "from", "subject", "receivedAt",
+                            "bodyValues", "textBody"
+                        ],
+                        fetch_text_body_values=True
+                    )
+                ),
+                timeout=self.REQUEST_TIMEOUT
             )
 
             messages = []
