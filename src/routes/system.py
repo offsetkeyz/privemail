@@ -11,8 +11,10 @@ from models.schemas import (
     ModelSettingRequest
 )
 import clients.ai_engine as ollama_client
+from clients.email_provider import get_provider_by_name
 from database.db import get_db, Setting
 from scheduler import _get_setting, _set_setting
+from core.path_utils import get_data_dir
 
 router = APIRouter(
     tags=["System & Models"],
@@ -109,3 +111,64 @@ async def post_generate(request: GenerationRequest):
         return output
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Provider Management Endpoints ---
+
+
+@router.get("/providers")
+async def get_providers(db: Session = Depends(get_db)):
+    """Get configured email providers."""
+    # Check Gmail
+    token_path = get_data_dir() / "token.json"
+    gmail_configured = token_path.exists()
+
+    # Check Fastmail
+    fastmail_key = db.query(Setting).filter(Setting.key == "fastmail_api_key").first()
+    fastmail_configured = fastmail_key is not None and fastmail_key.value is not None
+
+    # Get active
+    active_setting = db.query(Setting).filter(Setting.key == "email_provider").first()
+    active = active_setting.value if active_setting else "gmail"
+
+    configured = []
+    if gmail_configured:
+        configured.append("gmail")
+    if fastmail_configured:
+        configured.append("fastmail")
+
+    return {
+        "active": active,
+        "configured": configured,
+        "available": ["gmail", "fastmail"]
+    }
+
+
+@router.post("/provider")
+async def switch_provider(request: dict, db: Session = Depends(get_db)):
+    """Switch active email provider."""
+    provider_name = request.get("provider")
+
+    if provider_name not in ["gmail", "fastmail"]:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    # Verify provider is configured
+    try:
+        provider = get_provider_by_name(provider_name)
+        if not await provider.test_connection():
+            raise HTTPException(
+                status_code=400,
+                detail=f"{provider_name} is not properly configured"
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Update setting
+    setting = db.query(Setting).filter(Setting.key == "email_provider").first()
+    if setting:
+        setting.value = provider_name
+    else:
+        db.add(Setting(key="email_provider", value=provider_name))
+    db.commit()
+
+    return {"success": True, "provider": provider_name}
