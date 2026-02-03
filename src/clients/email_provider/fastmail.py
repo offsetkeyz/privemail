@@ -46,12 +46,21 @@ class FastmailProvider(EmailProvider):
         return "fastmail"
 
     def _get_client(self) -> Client:
-        """Get or create JMAP client."""
+        """Get or create JMAP client.
+
+        Raises:
+            ConnectionError: If unable to create JMAP client
+            ValueError: If API token is invalid
+        """
         if self._client is None:
-            self._client = Client.create_with_api_token(
-                host=self.JMAP_HOST,
-                api_token=self._api_token
-            )
+            try:
+                self._client = Client.create_with_api_token(
+                    host=self.JMAP_HOST,
+                    api_token=self._api_token
+                )
+            except Exception as e:
+                logging.error(f"Failed to create JMAP client: {e}")
+                raise ConnectionError(f"Unable to connect to Fastmail: {e}") from e
         return self._client
 
     def _get_account_id(self) -> str:
