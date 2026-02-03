@@ -293,7 +293,8 @@ class FastmailProvider(EmailProvider):
             client = self._get_client()
             # The username is typically the email
             return client.session.username
-        except:
+        except (AttributeError, ConnectionError, TimeoutError, Exception) as e:
+            logging.error(f"Failed to get sender email: {e}")
             return ""
 
     def _get_identity_id(self) -> Optional[str]:
@@ -307,5 +308,6 @@ class FastmailProvider(EmailProvider):
             if result.data:
                 return result.data[0].id
             return None
-        except:
+        except (AttributeError, ConnectionError, TimeoutError, IndexError, Exception) as e:
+            logging.error(f"Failed to get identity ID: {e}")
             return None
