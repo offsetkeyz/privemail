@@ -262,7 +262,7 @@ async def rewrite_draft_paragraph(
     model_to_use = request.model or DEFAULT_OLLAMA_MODEL
 
     try:
-        rewritten_text = await ollama_client.rewrite_paragraph_for_tone(
+        rewritten_text = await ollama_client.rewrite_paragraph_for_to(
             system_prompt=system_prompt,
             paragraph=request.paragraph,
             model=model_to_use
