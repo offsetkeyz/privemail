@@ -18,6 +18,14 @@
         button:disabled { background: #9ca3af; cursor: not-allowed; }
         .secondary-btn { background: white; color: #374151; border: 1px solid #d1d5db; margin-top: 10px; }
         .secondary-btn:hover { background: #f9fafb; }
+        .provider-buttons { display: flex; gap: 20px; justify-content: center; margin: 30px 0; }
+        .provider-btn { display: flex; flex-direction: column; align-items: center; padding: 30px 50px; border: 2px solid #ddd; border-radius: 12px; background: white; cursor: pointer; transition: all 0.2s; }
+        .provider-btn:hover { border-color: #2563eb; background: #f8f9fa; }
+        .provider-btn.selected { border-color: #2563eb; background: #e7f1ff; }
+        .provider-icon { font-size: 48px; margin-bottom: 10px; }
+        .provider-name { font-size: 18px; font-weight: 500; }
+        .help-text { background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left; font-size: 0.9em; }
+        .help-text ol { margin: 10px 0; padding-left: 20px; }
     </style>
 </head>
 <body>
@@ -39,16 +47,48 @@
     </div>
 
     <div id="step-3" class="step">
+        <h1>Choose Your Email Provider</h1>
+        <p>Which email service do you use?</p>
+        <div class="provider-buttons">
+            <button class="provider-btn selected" data-provider="gmail" onclick="selectProvider('gmail')">
+                <span class="provider-icon">📧</span>
+                <span class="provider-name">Gmail</span>
+            </button>
+            <button class="provider-btn" data-provider="fastmail" onclick="selectProvider('fastmail')">
+                <span class="provider-icon">✉️</span>
+                <span class="provider-name">Fastmail</span>
+            </button>
+        </div>
+        <button onclick="handleProviderSelection()">Continue</button>
+    </div>
+
+    <div id="step-4" class="step">
         <h1>Connect Gmail</h1>
         <p>We need to authorize Privemail to access your Gmail account.</p>
         <p style="background: #fff7ed; color: #c2410c; padding: 10px; border-radius: 4px; font-size: 0.9em;">
             ⚠️ A browser window will open. Please sign in and verify permissions.
         </p>
         <button onclick="triggerGoogleAuth()" id="btn-auth">Authorize Google</button>
-        <button class="secondary-btn" onclick="nextStep(4)">Skip (I have token.json)</button>
+        <button class="secondary-btn" onclick="nextStep(6)">Skip (I have token.json)</button>
     </div>
 
-    <div id="step-4" class="step">
+    <div id="step-5" class="step">
+        <h1>Connect Fastmail</h1>
+        <p>Enter your Fastmail app password:</p>
+        <input type="password" id="fastmail-api-key" placeholder="fmu1-xxxxxxxx" />
+        <div class="help-text">
+            <p><strong>How to get an app password:</strong></p>
+            <ol>
+                <li>Go to Fastmail Settings → Privacy & Security</li>
+                <li>Under "App passwords", click "New app password"</li>
+                <li>Name it "Privemail" and copy the generated key</li>
+            </ol>
+        </div>
+        <button onclick="connectFastmail()">Test & Connect</button>
+        <div id="fastmail-status" style="margin-top: 10px; font-weight: 500;"></div>
+    </div>
+
+    <div id="step-6" class="step">
         <h1>Select AI Model</h1>
         <p>Choose the local AI model to power your assistant.</p>
         <select id="model-select">
@@ -61,12 +101,13 @@
 
 <script>
     let masterPassword = "";
+    let selectedProvider = 'gmail';
 
     function nextStep(stepNum) {
         document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
         document.getElementById(`step-${stepNum}`).classList.add('active');
-        
-        if(stepNum === 4) loadModels();
+
+        if(stepNum === 6) loadModels();
     }
 
     function handlePasswordStep() {
@@ -77,6 +118,58 @@
         }
         masterPassword = pass;
         nextStep(3);
+    }
+
+    function selectProvider(provider) {
+        selectedProvider = provider;
+        document.querySelectorAll('.provider-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.provider === provider);
+        });
+    }
+
+    function handleProviderSelection() {
+        if (selectedProvider === 'gmail') {
+            nextStep(4);
+        } else if (selectedProvider === 'fastmail') {
+            nextStep(5);
+        }
+    }
+
+    async function connectFastmail() {
+        const apiKey = document.getElementById('fastmail-api-key').value;
+        const statusEl = document.getElementById('fastmail-status');
+
+        if (!apiKey) {
+            statusEl.textContent = 'Please enter your API key';
+            statusEl.style.color = '#dc2626';
+            return;
+        }
+
+        statusEl.textContent = 'Connecting...';
+        statusEl.style.color = '#6b7280';
+
+        try {
+            const response = await fetch('/api/setup/fastmail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusEl.innerHTML = `✅ Connected as ${data.email}`;
+                statusEl.style.color = '#10b981';
+                // Proceed to next step
+                setTimeout(() => nextStep(6), 1500);
+            } else {
+                statusEl.textContent = `❌ ${data.error}`;
+                statusEl.style.color = '#dc2626';
+            }
+        } catch (error) {
+            statusEl.textContent = `❌ Connection failed: ${error.message}`;
+            statusEl.style.color = '#dc2626';
+        }
     }
 
     async function triggerGoogleAuth() {
@@ -100,7 +193,7 @@
                     clearInterval(interval);
                     btn.textContent = "Connected!";
                     btn.style.background = "#10b981";
-                    setTimeout(() => nextStep(4), 1000);
+                    setTimeout(() => nextStep(6), 1000);
                 }
                 checks++;
                 if(checks > 60) { clearInterval(interval); btn.textContent = "Retry"; btn.disabled = false; }
