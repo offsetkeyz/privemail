@@ -1,4 +1,5 @@
 """Gmail provider implementation wrapping existing google.py."""
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -29,7 +30,7 @@ class GmailProvider(EmailProvider):
     async def test_connection(self) -> bool:
         """Test Gmail connection."""
         try:
-            service = self._get_service()
+            service = await asyncio.to_thread(self._get_service)
             return service is not None
         except Exception as e:
             logging.error(f"Gmail connection test failed: {e}")
@@ -37,16 +38,16 @@ class GmailProvider(EmailProvider):
 
     async def fetch_unread_messages(self, limit: int = 10) -> List[EmailMessage]:
         """Fetch unread messages from Gmail."""
-        service = self._get_service()
+        service = await asyncio.to_thread(self._get_service)
         if not service:
             return []
 
         try:
-            stubs = google_client.fetch_new_email_stubs(service)
+            stubs = await asyncio.to_thread(google_client.fetch_new_email_stubs, service)
             messages = []
 
             for message_id in stubs[:limit]:
-                details = google_client.fetch_email_details(service, message_id)
+                details = await asyncio.to_thread(google_client.fetch_email_details, service, message_id)
                 if details:
                     messages.append(EmailMessage(
                         message_id=details["message_id"],
@@ -69,12 +70,12 @@ class GmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Send email via Gmail."""
-        service = self._get_service()
+        service = await asyncio.to_thread(self._get_service)
         if not service:
             return SendResult(success=False, error="Gmail service unavailable")
 
         try:
-            success = google_client.send_reply(service, to, subject, body)
+            success = await asyncio.to_thread(google_client.send_reply, service, to, subject, body)
             return SendResult(success=success, error=None if success else "Send failed")
         except Exception as e:
             logging.error(f"Error sending Gmail: {e}")
@@ -88,12 +89,12 @@ class GmailProvider(EmailProvider):
         reply_to_id: Optional[str] = None
     ) -> SendResult:
         """Create draft in Gmail."""
-        service = self._get_service()
+        service = await asyncio.to_thread(self._get_service)
         if not service:
             return SendResult(success=False, error="Gmail service unavailable")
 
         try:
-            success = google_client.create_draft(service, to, subject, body)
+            success = await asyncio.to_thread(google_client.create_draft, service, to, subject, body)
             return SendResult(success=success, error=None if success else "Draft creation failed")
         except Exception as e:
             logging.error(f"Error creating Gmail draft: {e}")
@@ -101,12 +102,12 @@ class GmailProvider(EmailProvider):
 
     async def get_contacts(self) -> List[Dict[str, Any]]:
         """Fetch contacts from Google."""
-        service = self._get_service()
+        service = await asyncio.to_thread(self._get_service)
         if not service:
             return []
 
         try:
-            return google_client.fetch_google_contacts(service)
+            return await asyncio.to_thread(google_client.fetch_google_contacts, service)
         except Exception as e:
             logging.error(f"Error fetching Google contacts: {e}")
             return []
