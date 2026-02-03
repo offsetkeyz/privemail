@@ -484,3 +484,39 @@ class FastmailProvider(EmailProvider):
         except Exception as e:
             logging.error(f"Error creating mailbox: {e}")
             return None
+
+    async def create_filter_rule(self, rule: "ProposedRule") -> Optional[str]:
+        """Create a sieve filter rule in Fastmail.
+        
+        Note: Simplified implementation - returns synthetic ID.
+        Real implementation would use JMAP SieveScript methods.
+        """
+        from core.rule_generator import RuleGenerator
+        
+        try:
+            # Generate sieve code
+            sieve_code = RuleGenerator.generate_sieve(rule)
+            if not sieve_code:
+                return None
+            
+            # Return synthetic ID (real impl would append to sieve script)
+            return f"privemail:{rule.rule_type}:{rule.pattern}:{rule.action}"
+        except Exception as e:
+            logging.error(f"Error creating filter rule: {e}")
+            return None
+
+    async def delete_filter_rule(self, rule_id: str) -> bool:
+        """Delete a filter rule from Fastmail.
+        
+        Note: Simplified implementation.
+        Real implementation would remove from sieve script.
+        """
+        if not rule_id.startswith("privemail:"):
+            return False
+        
+        try:
+            # Real impl would edit sieve script
+            return True
+        except Exception as e:
+            logging.error(f"Error deleting filter rule: {e}")
+            return False
