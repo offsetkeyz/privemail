@@ -37,7 +37,7 @@ class FastmailProvider(EmailProvider):
         """Initialize Fastmail provider.
 
         Args:
-            api_token: Fastmail app password (fmu1-xxxxx format)
+            api_token: Fastmail API key (app password in fmu1-xxxxx format)
             account_id: JMAP account ID (auto-discovered if not provided)
         """
         self._api_token = api_token

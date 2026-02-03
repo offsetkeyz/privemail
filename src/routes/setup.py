@@ -112,8 +112,11 @@ class FastmailSetupRequest(BaseModel):
 
 @router.post("/fastmail")
 async def setup_fastmail(request: FastmailSetupRequest):
-    """Setup Fastmail with API key (app password)."""
+    """Setup Fastmail with API key."""
     try:
+        # Ensure database exists before saving settings
+        db.create_db_and_tables()
+
         # Test connection
         provider = FastmailProvider(api_token=request.api_key)
 
