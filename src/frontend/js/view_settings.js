@@ -45,6 +45,15 @@ export async function renderSettingsView(container) {
             </div>
 
             <div class="settings-section" style="margin-bottom: 30px; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 8px;">
+                <h3>📧 Email Accounts</h3>
+                <p style="color:#666; font-size: 0.9em;">Manage your connected email providers.</p>
+                <div id="provider-list" style="margin-top: 15px;"></div>
+                <button id="btn-add-provider" style="margin-top: 15px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; padding: 8px 15px; border-radius: 4px; cursor: pointer;">
+                    + Add Another Account
+                </button>
+            </div>
+
+            <div class="settings-section" style="margin-bottom: 30px; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 8px;">
                 <h3>⚙️ Preferences</h3>
                 
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
@@ -121,6 +130,9 @@ export async function renderSettingsView(container) {
     `;
 
     container.innerHTML = html;
+
+    // --- LOAD PROVIDERS ---
+    await loadProviders();
 
     // --- WIRE UP BUTTONS ---
 
@@ -204,4 +216,77 @@ export async function renderSettingsView(container) {
             alert("Please restart the application to trigger the Google Login flow.");
         }
     };
+
+    document.getElementById('btn-add-provider').onclick = () => {
+        alert("To add a provider, go through the setup wizard again or use the API endpoints.");
+    };
+}
+
+async function loadProviders() {
+    try {
+        const response = await fetch('/api/providers');
+        const data = await response.json();
+
+        const listEl = document.getElementById('provider-list');
+        listEl.innerHTML = '';
+
+        if (data.configured.length === 0) {
+            listEl.innerHTML = '<p style="color: #888; font-style: italic;">No providers configured yet.</p>';
+            return;
+        }
+
+        data.configured.forEach(provider => {
+            const isActive = provider === data.active;
+            const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+            const div = document.createElement('div');
+            div.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 10px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;';
+
+            div.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 20px;">${isActive ? '●' : '○'}</span>
+                    <span style="font-weight: 500;">${providerName}</span>
+                    ${isActive ? '<span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;">Active</span>' : ''}
+                </div>
+                <button
+                    style="padding: 6px 12px; border-radius: 4px; border: 1px solid #d1d5db; background: white; cursor: pointer; ${isActive ? 'opacity: 0.5; cursor: not-allowed;' : ''}"
+                    ${isActive ? 'disabled' : ''}
+                    onclick="switchProvider('${provider}')"
+                >
+                    ${isActive ? 'Active' : 'Switch'}
+                </button>
+            `;
+
+            listEl.appendChild(div);
+        });
+    } catch (error) {
+        console.error('Failed to load providers:', error);
+        document.getElementById('provider-list').innerHTML = '<p style="color: #dc2626;">Failed to load providers</p>';
+    }
+}
+
+window.switchProvider = async function(provider) {
+    if (!confirm(`Switch to ${provider}? You'll only see ${provider} emails until you switch back.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/provider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            await loadProviders();
+            alert(`Switched to ${provider}. Refresh the inbox to see changes.`);
+        } else {
+            alert('Failed to switch: ' + (data.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Switch provider error:', error);
+        alert('Failed to switch provider: ' + error.message);
+    }
 }
