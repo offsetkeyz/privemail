@@ -45,6 +45,9 @@ def test_get_provider_fastmail_not_configured():
         import sys
         sys.path.insert(0, '/home/offsetkeyz/projects/privemail-email-providers/src')
         from clients.email_provider import get_active_provider
+        import clients.email_provider
+        # Clear cache to avoid test pollution
+        clients.email_provider._provider_cache.clear()
         with pytest.raises(ValueError, match="not configured"):
             get_active_provider()
 
