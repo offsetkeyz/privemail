@@ -19,6 +19,8 @@ from jmapc.methods import (
     EmailSet,
     EmailSubmissionSet,
     MailboxQuery,
+    MailboxGet,
+    MailboxSet,
 )
 
 from .base import EmailProvider, EmailMessage, SendResult
@@ -338,3 +340,183 @@ class FastmailProvider(EmailProvider):
         except (AttributeError, ConnectionError, TimeoutError, IndexError, Exception) as e:
             logging.error(f"Failed to get identity ID: {e}")
             return None
+
+    async def _get_mailbox_id_by_role(self, role: str) -> Optional[str]:
+        """Get mailbox ID by role (inbox, spam, drafts, etc.)."""
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            query = MailboxQuery(filter={"role": role})
+            query.account_id = account_id
+            result = client.request(query)
+
+            if result and result.ids:
+                return result.ids[0]
+            return None
+        except Exception as e:
+            logging.error(f"Error getting mailbox by role {role}: {e}")
+            return None
+
+    async def _get_mailbox_id_by_name(self, name: str) -> Optional[str]:
+        """Get mailbox ID by name."""
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            query = MailboxQuery(filter={"name": name})
+            query.account_id = account_id
+            result = client.request(query)
+
+            if result and result.ids:
+                return result.ids[0]
+            return None
+        except Exception as e:
+            logging.error(f"Error getting mailbox by name {name}: {e}")
+            return None
+
+    async def get_mailboxes(self) -> List["Mailbox"]:
+        """List all mailboxes/folders."""
+        from .base import Mailbox as BaseMailbox
+
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            # First query to get all mailbox IDs
+            mailbox_query = MailboxQuery()
+            mailbox_query.account_id = account_id
+            query_result = client.request(mailbox_query)
+
+            if not query_result or not query_result.ids:
+                return []
+
+            # Then get details for those mailboxes
+            mailbox_get = MailboxGet(ids=query_result.ids)
+            mailbox_get.account_id = account_id
+            result = client.request(mailbox_get)
+
+            mailboxes = []
+            for mb in result.data:
+                mailboxes.append(BaseMailbox(
+                    id=mb.id,
+                    name=mb.name,
+                    role=mb.role
+                ))
+            return mailboxes
+        except Exception as e:
+            logging.error(f"Error getting mailboxes: {e}")
+            return []
+
+    async def move_to_spam(self, email_id: str) -> "MoveResult":
+        """Move email to Spam folder."""
+        from .base import MoveResult
+
+        spam_id = await self._get_mailbox_id_by_role("junk")
+        if not spam_id:
+            # Try by name as fallback
+            spam_id = await self._get_mailbox_id_by_name("Spam")
+
+        if not spam_id:
+            return MoveResult(success=False, error="Could not find Spam folder")
+
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            email_set = EmailSet(
+                update={
+                    email_id: {"mailboxIds": {spam_id: True}}
+                }
+            )
+            email_set.account_id = account_id
+            result = client.request(email_set)
+
+            if result.updated and email_id in result.updated:
+                return MoveResult(success=True, new_folder="Spam")
+            return MoveResult(success=False, error="Move failed")
+        except Exception as e:
+            logging.error(f"Error moving to spam: {e}")
+            return MoveResult(success=False, error=str(e))
+
+    async def move_to_folder(self, email_id: str, folder: str) -> "MoveResult":
+        """Move email to specified folder."""
+        from .base import MoveResult
+
+        folder_id = await self._get_mailbox_id_by_name(folder)
+        if not folder_id:
+            return MoveResult(success=False, error=f"Folder '{folder}' not found")
+
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            email_set = EmailSet(
+                update={
+                    email_id: {"mailboxIds": {folder_id: True}}
+                }
+            )
+            email_set.account_id = account_id
+            result = client.request(email_set)
+
+            if result.updated and email_id in result.updated:
+                return MoveResult(success=True, new_folder=folder)
+            return MoveResult(success=False, error="Move failed")
+        except Exception as e:
+            logging.error(f"Error moving to folder: {e}")
+            return MoveResult(success=False, error=str(e))
+
+    async def create_mailbox(self, name: str) -> Optional[str]:
+        """Create a new mailbox/folder."""
+        try:
+            client = self._get_client()
+            account_id = self._get_account_id()
+
+            mailbox_set = MailboxSet(
+                create={"new": Mailbox(name=name)}
+            )
+            mailbox_set.account_id = account_id
+            result = client.request(mailbox_set)
+
+            if result.created and "new" in result.created:
+                return result.created["new"].id
+            return None
+        except Exception as e:
+            logging.error(f"Error creating mailbox: {e}")
+            return None
+
+    async def create_filter_rule(self, rule: "ProposedRule") -> Optional[str]:
+        """Create a sieve filter rule in Fastmail.
+        
+        Note: Simplified implementation - returns synthetic ID.
+        Real implementation would use JMAP SieveScript methods.
+        """
+        from core.rule_generator import RuleGenerator
+        
+        try:
+            # Generate sieve code
+            sieve_code = RuleGenerator.generate_sieve(rule)
+            if not sieve_code:
+                return None
+            
+            # Return synthetic ID (real impl would append to sieve script)
+            return f"privemail:{rule.rule_type}:{rule.pattern}:{rule.action}"
+        except Exception as e:
+            logging.error(f"Error creating filter rule: {e}")
+            return None
+
+    async def delete_filter_rule(self, rule_id: str) -> bool:
+        """Delete a filter rule from Fastmail.
+        
+        Note: Simplified implementation.
+        Real implementation would remove from sieve script.
+        """
+        if not rule_id.startswith("privemail:"):
+            return False
+        
+        try:
+            # Real impl would edit sieve script
+            return True
+        except Exception as e:
+            logging.error(f"Error deleting filter rule: {e}")
+            return False

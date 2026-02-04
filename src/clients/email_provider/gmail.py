@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from .base import EmailProvider, EmailMessage, SendResult
+from .base import EmailProvider, EmailMessage, SendResult, MoveResult, Mailbox
 from .validation import is_valid_email
 import clients.google as google_client
 
@@ -120,3 +120,99 @@ class GmailProvider(EmailProvider):
         except Exception as e:
             logging.error(f"Error fetching Google contacts: {e}")
             return []
+
+    async def get_mailboxes(self) -> List[Mailbox]:
+        """List Gmail labels as mailboxes."""
+        service = await asyncio.to_thread(self._get_service)
+        if not service:
+            return []
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: service.users().labels().list(userId='me').execute()
+            )
+            labels = result.get('labels', [])
+
+            mailboxes = []
+            for label in labels:
+                role = None
+                if label['id'] in ('INBOX', 'SPAM', 'TRASH', 'DRAFT', 'SENT'):
+                    role = label['id'].lower()
+                mailboxes.append(Mailbox(
+                    id=label['id'],
+                    name=label['name'],
+                    role=role
+                ))
+            return mailboxes
+        except Exception as e:
+            logging.error(f"Error getting Gmail labels: {e}")
+            return []
+
+    async def move_to_spam(self, email_id: str) -> MoveResult:
+        """Move email to Spam by modifying labels."""
+        service = await asyncio.to_thread(self._get_service)
+        if not service:
+            return MoveResult(success=False, error="Gmail service unavailable")
+
+        try:
+            await asyncio.to_thread(
+                lambda: service.users().messages().modify(
+                    userId='me',
+                    id=email_id,
+                    body={'addLabelIds': ['SPAM'], 'removeLabelIds': ['INBOX']}
+                ).execute()
+            )
+            return MoveResult(success=True, new_folder="Spam")
+        except Exception as e:
+            logging.error(f"Error moving to spam: {e}")
+            return MoveResult(success=False, error=str(e))
+
+    async def move_to_folder(self, email_id: str, folder: str) -> MoveResult:
+        """Move email to folder by adding label."""
+        service = await asyncio.to_thread(self._get_service)
+        if not service:
+            return MoveResult(success=False, error="Gmail service unavailable")
+
+        try:
+            # Find label ID by name
+            labels_result = await asyncio.to_thread(
+                lambda: service.users().labels().list(userId='me').execute()
+            )
+            label_id = None
+            for label in labels_result.get('labels', []):
+                if label['name'] == folder:
+                    label_id = label['id']
+                    break
+
+            if not label_id:
+                return MoveResult(success=False, error=f"Label '{folder}' not found")
+
+            await asyncio.to_thread(
+                lambda: service.users().messages().modify(
+                    userId='me',
+                    id=email_id,
+                    body={'addLabelIds': [label_id], 'removeLabelIds': ['INBOX']}
+                ).execute()
+            )
+            return MoveResult(success=True, new_folder=folder)
+        except Exception as e:
+            logging.error(f"Error moving to folder: {e}")
+            return MoveResult(success=False, error=str(e))
+
+    async def create_mailbox(self, name: str) -> Optional[str]:
+        """Create a Gmail label."""
+        service = await asyncio.to_thread(self._get_service)
+        if not service:
+            return None
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: service.users().labels().create(
+                    userId='me',
+                    body={'name': name, 'labelListVisibility': 'labelShow'}
+                ).execute()
+            )
+            return result.get('id')
+        except Exception as e:
+            logging.error(f"Error creating label: {e}")
+            return None

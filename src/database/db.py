@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, ForeignKey, Float
 from sqlalchemy.orm import sessionmaker, relationship, DeclarativeBase
 from sqlalchemy.exc import OperationalError
@@ -87,6 +88,40 @@ class Setting(Base):
     __tablename__ = "settings"
     key = Column(String, primary_key=True, index=True)
     value = Column(String)
+
+
+class EmailClassification(Base):
+    __tablename__ = "email_classifications"
+    id = Column(Integer, primary_key=True, index=True)
+    email_id = Column(Integer, ForeignKey("emails.id"), nullable=False)
+    sender = Column(String, nullable=False, index=True)
+    sender_domain = Column(String, nullable=False, index=True)
+    classification = Column(String, nullable=False)  # 'spam', 'wanted', 'categorize'
+    folder = Column(String, nullable=True)  # target folder for 'categorize'
+    provider = Column(String, nullable=False)  # 'gmail' or 'fastmail'
+    created_at = Column(String, default=lambda: datetime.now().isoformat())
+
+
+class EmailRule(Base):
+    __tablename__ = "email_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    rule_type = Column(String, nullable=False)  # 'sender' or 'domain'
+    pattern = Column(String, nullable=False)
+    action = Column(String, nullable=False)  # 'spam', 'wanted', 'categorize'
+    folder = Column(String, nullable=True)  # for 'categorize' rules
+    fastmail_rule_id = Column(String, nullable=True)  # NULL if not applied
+    dismissed = Column(Boolean, default=False)
+    created_at = Column(String, default=lambda: datetime.now().isoformat())
+    applied_at = Column(String, nullable=True)
+
+
+class UserFolder(Base):
+    __tablename__ = "user_folders"
+    folder_name = Column(String, primary_key=True)
+    provider = Column(String, nullable=False)
+    use_count = Column(Integer, default=1)
+    last_used = Column(String, default=lambda: datetime.now().isoformat())
+
 
 def migrate_schema_if_needed():
     """Add provider columns if they don't exist."""
